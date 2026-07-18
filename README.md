@@ -163,14 +163,14 @@ UV4.exe -r "Lab3.uvprojx" -j0 -o "build.log"
 - **Fixed an operator-precedence bug in the temperature conversion.** `Temperature=(int) mV/10.0;` cast `mV` to `int` *before* dividing (the cast binds tighter than `/`), truncating a step earlier than intended. Changed to `Temperature=(int)(mV/10.0);`.
 - **Unified peripheral access onto TivaWare `driverlib`.** GPIO/UART/ADC init and every register write in `Trial2.c` used a mix of raw register macros and CMSIS-style structs; all of it (`PORTE_init`, `PORTF_init`, `UART_Init`, `UART0_Receiver`/`Transmitter`, `ADC_Init`, and every heater/LED/buzzer GPIO write) now goes through `driverlib`, matching the style `LCD.c` already used. UART0 is deliberately clocked from the 16 MHz PIOSC (`UARTClockSourceSet(... UART_CLOCK_PIOSC)`) so the 9600 baud rate stays independent of the system clock, matching the original register-level setup.
 - **Replaced magic-number pin masks with named constants.** `HEATER_PIN`, `LED_PIN`, `BUZZER_PIN` (Port F), `PORTE_OUTPUT_PINS`, `TEMP_SENSOR_PIN`, and `TEMP_ADC_SEQUENCER` in `Trial2.h` replace the `0x37`/`0x0e`/`0x08`/`0x04`/`0x02` bit masks.
+- **Fixed an LCD peripheral-clock race.** `LCD_setup()` enabled the Port A/C clocks and configured their pins on the very next line, with no wait for the clock to stabilize — a known TM4C123 gotcha. Added a `SysCtlPeripheralReady()` wait after each `SysCtlPeripheralEnable()` call, matching the pattern already used elsewhere in `Trial2.c`.
 
 ## Known issues / not yet fixed
 
 These are tracked but not yet addressed:
 
-1. **LCD peripheral-clock race.** `LCD_setup()` enables the Port A/C clocks and configures their pins on the very next line, with no wait for the clock to stabilize — a known TM4C123 gotcha.
-2. **Dead/duplicate entry points and stale names.** `Trial.c` is an unused standalone LCD test; `Main0.c` (the real entry point) and `Trial2.c`/`Trial2.h` (the application core) carry legacy names from earlier demo iterations, and the Keil project itself is still named `Lab3`.
-3. **Monolithic application file.** `Trial2.c` holds ADC/UART/GPIO init *and* all four RTOS tasks in one file.
-4. **Avoid busy-waiting inside RTOS tasks.** `Main_Task` and `Buzzer_Task` never call `vTaskDelay`, and every queue read uses a `0` (non-blocking) timeout. This only works because `configUSE_TIME_SLICING` is enabled — each task still burns its full time slice spinning rather than yielding.
-5. **Guard the LCD text buffers.** `Message.Txt1`/`Txt2` are fixed 4-byte arrays fed by `itoa`; a 3-digit temperature plus the null terminator exactly fills the buffer with zero margin for a sign character or a 4th digit.
-6. **Validate UART input.** `UART_Task` accumulates every received byte as `N - '0'` with no check that the character was actually a digit, and no bound on the number of digits entered before Enter.
+1. **Dead/duplicate entry points and stale names.** `Trial.c` is an unused standalone LCD test; `Main0.c` (the real entry point) and `Trial2.c`/`Trial2.h` (the application core) carry legacy names from earlier demo iterations, and the Keil project itself is still named `Lab3`.
+2. **Monolithic application file.** `Trial2.c` holds ADC/UART/GPIO init *and* all four RTOS tasks in one file.
+3. **Avoid busy-waiting inside RTOS tasks.** `Main_Task` and `Buzzer_Task` never call `vTaskDelay`, and every queue read uses a `0` (non-blocking) timeout. This only works because `configUSE_TIME_SLICING` is enabled — each task still burns its full time slice spinning rather than yielding.
+4. **Guard the LCD text buffers.** `Message.Txt1`/`Txt2` are fixed 4-byte arrays fed by `itoa`; a 3-digit temperature plus the null terminator exactly fills the buffer with zero margin for a sign character or a 4th digit.
+5. **Validate UART input.** `UART_Task` accumulates every received byte as `N - '0'` with no check that the character was actually a digit, and no bound on the number of digits entered before Enter.

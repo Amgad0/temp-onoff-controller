@@ -82,10 +82,12 @@ void LCD_setup(LCD *lcd)
 {
     //Enable CTRL Peripheral
     SysCtlPeripheralEnable(lcd->ControlPeripheral);
+    while(!SysCtlPeripheralReady(lcd->ControlPeripheral)) {}   //wait for clock to stabilize before touching the port
     GPIOPinTypeGPIOOutput(lcd->ControlPortBase, LCD_CTRL_BUS(lcd));
 
     //Enable DATA Peripheral
     SysCtlPeripheralEnable(lcd->DataPeripheral);
+    while(!SysCtlPeripheralReady(lcd->DataPeripheral)) {}      //wait for clock to stabilize before touching the port
     GPIOPinTypeGPIOOutput(lcd->DataPortBase, LCD_DATA_BUS(lcd));
 }
 
