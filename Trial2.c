@@ -2,9 +2,9 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //Project
-	xQueueHandle xUARTQueue;
-	xQueueHandle xLCDQueue;
-	xQueueHandle xBuzzerQueue;
+	QueueHandle_t xUARTQueue;
+	QueueHandle_t xLCDQueue;
+	QueueHandle_t xBuzzerQueue;
 
 void PROJECT_Init(void)
 {
