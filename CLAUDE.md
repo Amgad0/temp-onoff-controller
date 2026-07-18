@@ -25,17 +25,17 @@ This is a 4-task FreeRTOS application coordinating over three single-slot queues
 
 All four tasks run at the same priority (7); FreeRTOS time-slicing (`configUSE_TIME_SLICING=1`, `configTICK_RATE_HZ=1000`) round-robins them every 1ms tick.
 
-Task responsibilities, all defined in [TempController.c](TempController.c) and declared in [TempController.h](TempController.h):
+Task responsibilities, all defined in [app_tasks.c](app_tasks.c) and declared in [app_tasks.h](app_tasks.h):
 - `Main_Task` — reads the LM35 temperature sensor via ADC0 SS3 (polled, PE3/AIN0), compares against the setpoint received from `xUARTQueue`, drives the heater relay + status LED on Port F (with a small hysteresis band), pushes display text to `xLCDQueue`, and pushes the alarm state to `xBuzzerQueue` when temperature exceeds `AlarmValue` (70°C).
 - `UART_Task` — prompts over UART0 (9600 baud, PA0/PA1), blocking-reads digits typed by the user until `\n`, accumulates them into an integer setpoint, and sends it via `xUARTQueue`.
 - `LCD_Task` — owns the `LCD` struct (from [LCD.h](LCD.h)/[LCD.c](LCD.c)), receives `{Txt1, Txt2}` from `xLCDQueue` and redraws measured/setpoint temperature once per second.
 - `Buzzer_Task` — receives the on/off flag from `xBuzzerQueue` and toggles the buzzer GPIO (PF1) accordingly.
 
-`PROJECT_Init()` in TempController.c performs all one-time hardware bring-up (Port E, Port F, UART0, ADC0) and creates the three queues before `main()` (in [main.c](main.c)) creates the tasks and starts the scheduler.
+`PROJECT_Init()` in [TempController.c](TempController.c) orchestrates one-time hardware bring-up by calling into the driver modules — [gpio_init.c](gpio_init.c) (`PORTE_init`/`PORTF_init`), [uart.c](uart.c) (`UART_Init`), [adc.c](adc.c) (`ADC_Init`) — and creates the three queues before `main()` (in [main.c](main.c)) creates the tasks and starts the scheduler. `TempController.h` holds the shared named pin/peripheral constants and `extern QueueHandle_t` declarations that all of the above files include.
 
 ### Peripheral-access style (uniform driverlib — keep it that way)
 
-All peripheral access now goes through TI TivaWare `driverlib` (e.g. `GPIOPinWrite`, `SysCtlPeripheralEnable`, `UARTCharGet`, `ADCSequenceDataGet`) across both `TempController.c` and `LCD.c`. This was **not** always the case: the code originally mixed three styles (raw register macros from `tm4c123gh6pm.h`, CMSIS-style peripheral structs like `GPIOE->AFSEL`, and driverlib) and was unified to driverlib. When touching peripheral code, stay in driverlib rather than reintroducing raw-register or CMSIS-struct access.
+All peripheral access now goes through TI TivaWare `driverlib` (e.g. `GPIOPinWrite`, `SysCtlPeripheralEnable`, `UARTCharGet`, `ADCSequenceDataGet`) across `gpio_init.c`, `uart.c`, `adc.c`, `app_tasks.c`, and `LCD.c`. This was **not** always the case: the code originally mixed three styles (raw register macros from `tm4c123gh6pm.h`, CMSIS-style peripheral structs like `GPIOE->AFSEL`, and driverlib) in one file and was unified to driverlib before later being split apart. When touching peripheral code, stay in driverlib rather than reintroducing raw-register or CMSIS-struct access.
 
 Notes for driverlib work here:
 - `PART_TM4C123GH6PM` is `#define`d in [TempController.h](TempController.h) before including `driverlib/pin_map.h` — required for the pin-mux macros (`GPIO_PA0_U0RX`, etc.) to be visible. Don't remove it.
@@ -45,13 +45,19 @@ Notes for driverlib work here:
 
 ### Entry point
 
-`main.c` is the entry point — its `int main()` runs `PROJECT_Init()`, creates the four tasks, and starts the scheduler. (It was formerly `Main0.c`, a legacy name from an earlier LCD demo, renamed for clarity.) An earlier standalone LCD test, `Trial.c`, used to sit unreferenced in the repo root and has been removed. Before assuming any root `.c` file is live code, check `Project.uvprojx`'s `<Files>` list — Source Group 1 is exactly `LCD.c`, `gpio.c`, `TempController.c`, `main.c`.
+`main.c` is the entry point — its `int main()` runs `PROJECT_Init()`, creates the four tasks, and starts the scheduler. (It was formerly `Main0.c`, a legacy name from an earlier LCD demo, renamed for clarity.) An earlier standalone LCD test, `Trial.c`, used to sit unreferenced in the repo root and has been removed. Before assuming any root `.c` file is live code, check `Project.uvprojx`'s `<Files>` list — Source Group 1 is exactly `LCD.c`, `gpio.c` (TivaWare's, not ours), `TempController.c`, `main.c`, `gpio_init.c`, `uart.c`, `adc.c`, `app_tasks.c`.
+
+### Filename collisions to avoid
+
+Two obvious driver/module names are already taken by files this project compiles from elsewhere, and reusing them silently breaks or confuses the build:
+- `gpio.c` is TivaWare's own `driverlib/gpio.c`, already listed as a project source (not pulled in via `driverlib.lib`). The GPIO init driver here is named [gpio_init.c](gpio_init.c) to avoid it.
+- `tasks.c` is FreeRTOS's own kernel source implementing the scheduler (CMSIS-FreeRTOS Core component). The RTOS-task file here is named [app_tasks.c](app_tasks.c) to avoid it — reusing `tasks.c` still links (Keil silently renames the object to `tasks_1.o`), but it's confusing and easy to get wrong.
 
 ### FreeRTOS pack version sensitivity
 
 The active FreeRTOS config is `RTE/RTOS/FreeRTOSConfig.h` (wired in via `RTE_Components.h` → `RTE_RTOS_FreeRTOS_CONFIG`); a root-level `FreeRTOSConfig.h` used to exist as an unreferenced duplicate and has been deleted. Only the **Config/Core/Heap_1** CMSIS-FreeRTOS RTE components are installed (no Timers component), and `configUSE_TIMERS` is `0` to match — if new code ever needs software timers, both the RTE component and `timers.c` would need to be added, or it'll fail at link time with undefined `xTimerCreateTimerTask`/`xTimerGetTimerDaemonTaskHandle`. `configCHECK_FOR_STACK_OVERFLOW` is `2`, which requires `vApplicationStackOverflowHook` to be defined somewhere in the build (currently in `main.c`) — removing it without providing a hook reintroduces a link error. The code originally used the legacy FreeRTOS `xQueueHandle` type alias, which the installed CMSIS-FreeRTOS 11.3.0 pack doesn't define; it's been updated to `QueueHandle_t` in `TempController.c` — don't reintroduce the old alias.
 
-The build also emits harmless `-Wmacro-redefined` warnings (e.g. `WATCHDOG0_BASE`) from TivaWare's `inc/hw_memmap.h` and the CMSIS device header both defining the same peripheral base addresses with identical values — expected side effect of both header families being in the include set, not a regression to chase.
+The build also emits harmless `-Wmacro-redefined` warnings (e.g. `WATCHDOG0_BASE`) from TivaWare's `inc/hw_memmap.h` and the CMSIS device header both defining the same peripheral base addresses with identical values — expected side effect of both header families being in the include set, not a regression to chase. The warning count scales with the number of translation units that include `TempController.h` (each one re-triggers the same redefinitions), so it went up after the file split below — that's expected, not a new problem.
 
 ## Applied fixes / current state (do not regress)
 
@@ -65,10 +71,10 @@ The build also emits harmless `-Wmacro-redefined` warnings (e.g. `WATCHDOG0_BASE
 - **Dead `Trial.c` removed** — earlier standalone LCD test, never in the build; deleting it removes the duplicate `main()` from the repo root.
 - **`Main0.c` renamed to `main.c`**, **`Trial2.c`/`Trial2.h` renamed to `TempController.c`/`TempController.h`** — entry point and application core now have honest names; Keil `.uvprojx`/`.uvoptx`/`.uvguix` references were updated to match.
 - **Keil project renamed `Lab3.*` → `Project.*`** — `OutputName` is now `Project`, so the build produces `Objects\Project.axf` (was `Lab3.axf`).
+- **Split the monolithic `TempController.c`** into [gpio_init.c](gpio_init.c)/`.h`, [uart.c](uart.c)/`.h`, [adc.c](adc.c)/`.h` (one driver each) and [app_tasks.c](app_tasks.c)/`.h` (the four RTOS tasks + `itoa`/`swap`/`reverse`), leaving `TempController.c` as a thin orchestrator that calls the driver init functions and owns the shared queues. See "Filename collisions to avoid" above for why the new files aren't named `gpio.c`/`tasks.c`.
 
 ## Remaining refactor suggestions (not yet done)
 
-1. **Split the monolithic `TempController.c`** into separate driver files (GPIO, UART, ADC) and a tasks file.
-2. **Avoid busy-waiting inside RTOS tasks** — `Main_Task`/`Buzzer_Task` never call `vTaskDelay` and use non-blocking queue reads; only works because `configUSE_TIME_SLICING` is on.
-3. **Guard the LCD text buffers** — `Message.Txt1`/`Txt2` are 4-byte arrays with zero margin for a sign or 4th digit.
-4. **Validate UART input** — `UART_Task` has no digit check or length bound.
+1. **Avoid busy-waiting inside RTOS tasks** — `Main_Task`/`Buzzer_Task` never call `vTaskDelay` and use non-blocking queue reads; only works because `configUSE_TIME_SLICING` is on.
+2. **Guard the LCD text buffers** — `Message.Txt1`/`Txt2` are 4-byte arrays with zero margin for a sign or 4th digit.
+3. **Validate UART input** — `UART_Task` has no digit check or length bound.

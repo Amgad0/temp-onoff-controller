@@ -127,8 +127,12 @@ flowchart LR
 
 | File | Role |
 |---|---|
-| [`TempController.c`](TempController.c) / [`TempController.h`](TempController.h) | Application core: hardware bring-up (`PROJECT_Init`, `PORTE_init`, `PORTF_init`, `UART_Init`, `ADC_Init`), all four RTOS tasks, and a small hand-written `itoa`/`reverse`/`swap` for formatting temperatures onto the LCD without pulling in a full C library `itoa`. |
-| [`main.c`](main.c) | Entry point — `main()` creates the four tasks and starts the FreeRTOS scheduler. |
+| [`main.c`](main.c) | Entry point — `main()` calls `PROJECT_Init()`, creates the four tasks, starts the FreeRTOS scheduler, and defines `vApplicationStackOverflowHook`. |
+| [`TempController.c`](TempController.c) / [`TempController.h`](TempController.h) | Application core: `PROJECT_Init()` orchestrates hardware bring-up (calling into the driver modules below) and creates the three inter-task queues. The header also holds the shared named pin/peripheral constants and `extern` queue declarations used across all the files below. |
+| [`gpio_init.c`](gpio_init.c) / [`gpio_init.h`](gpio_init.h) | GPIO driver: `PORTE_init`/`PORTF_init` bring up Port E (analog sensor + spare outputs) and Port F (heater/LED/buzzer outputs). Named `gpio_init` rather than `gpio` to avoid clashing with TivaWare's own `driverlib/gpio.c`, which is already compiled into this project. |
+| [`uart.c`](uart.c) / [`uart.h`](uart.h) | UART driver: `UART_Init`, `UART0_Receiver`/`UART0_Transmitter`, and `printstring` for the serial setpoint CLI. |
+| [`adc.c`](adc.c) / [`adc.h`](adc.h) | ADC driver: `ADC_Init` configures ADC0 sample sequencer SS3 for the LM35 temperature reading on AIN0. |
+| [`app_tasks.c`](app_tasks.c) / [`app_tasks.h`](app_tasks.h) | The four RTOS tasks (`Main_Task`, `UART_Task`, `LCD_Task`, `Buzzer_Task`) and a small hand-written `itoa`/`reverse`/`swap` for formatting temperatures onto the LCD without pulling in a full C library `itoa`. Named `app_tasks` rather than `tasks` to avoid clashing with FreeRTOS's own kernel source file `tasks.c` (Core/Cortex-M component), which is already compiled into this project. |
 | [`LCD.c`](LCD.c) / [`LCD.h`](LCD.h) | Custom HD44780-compatible LCD driver written against TI's TivaWare `driverlib`. Supports 4-bit nibble-mode communication (halving the GPIO pin count needed vs. 8-bit mode), cursor/position tracking across both lines, and byte/string/number output primitives (`LCD_sendByte`, `LCD_sendString`, `LCD_sendNum`). |
 | [`tm4c123gh6pm.h`](tm4c123gh6pm.h) | Vendor register-definition header for the TM4C123GH6PM (memory-mapped peripheral registers). Retained in the include set, though peripheral access now goes through `driverlib` rather than these raw macros. |
 | [`RTE/RTOS/FreeRTOSConfig.h`](RTE/RTOS/FreeRTOSConfig.h) | FreeRTOS kernel configuration — 1 kHz tick, preemption + time-slicing enabled, 8 KB heap, `heap_1` allocator. |
@@ -164,12 +168,12 @@ UV4.exe -r "Project.uvprojx" -j0 -o "build.log"
 - **Replaced magic-number pin masks with named constants.** `HEATER_PIN`, `LED_PIN`, `BUZZER_PIN` (Port F), `PORTE_OUTPUT_PINS`, `TEMP_SENSOR_PIN`, and `TEMP_ADC_SEQUENCER` in `TempController.h` replace the `0x37`/`0x0e`/`0x08`/`0x04`/`0x02` bit masks.
 - **Fixed an LCD peripheral-clock race.** `LCD_setup()` enabled the Port A/C clocks and configured their pins on the very next line, with no wait for the clock to stabilize — a known TM4C123 gotcha. Added a `SysCtlPeripheralReady()` wait after each `SysCtlPeripheralEnable()` call, matching the pattern already used elsewhere in `TempController.c`.
 - **Renamed dead/legacy files and removed the unused standalone test.** `Trial2.c`/`Trial2.h` → `TempController.c`/`TempController.h` and `Main0.c` → `main.c` (both were legacy names from earlier demo iterations); the dead `Trial.c` standalone LCD test (never part of the build) was deleted; the Keil project itself was renamed `Lab3.*` → `Project.*`.
+- **Split the monolithic application file into driver + task modules.** `TempController.c` used to hold ADC/UART/GPIO init *and* all four RTOS tasks in one ~350-line file. It's now split into [`gpio_init.c`](gpio_init.c), [`uart.c`](uart.c), [`adc.c`](adc.c) (one driver each), [`app_tasks.c`](app_tasks.c) (the four RTOS tasks), and a slimmed-down `TempController.c` that just orchestrates init and owns the shared queues.
 
 ## Known issues / not yet fixed
 
 These are tracked but not yet addressed:
 
-1. **Monolithic application file.** `TempController.c` holds ADC/UART/GPIO init *and* all four RTOS tasks in one file.
-2. **Avoid busy-waiting inside RTOS tasks.** `Main_Task` and `Buzzer_Task` never call `vTaskDelay`, and every queue read uses a `0` (non-blocking) timeout. This only works because `configUSE_TIME_SLICING` is enabled — each task still burns its full time slice spinning rather than yielding.
-3. **Guard the LCD text buffers.** `Message.Txt1`/`Txt2` are fixed 4-byte arrays fed by `itoa`; a 3-digit temperature plus the null terminator exactly fills the buffer with zero margin for a sign character or a 4th digit.
-4. **Validate UART input.** `UART_Task` accumulates every received byte as `N - '0'` with no check that the character was actually a digit, and no bound on the number of digits entered before Enter.
+1. **Avoid busy-waiting inside RTOS tasks.** `Main_Task` and `Buzzer_Task` never call `vTaskDelay`, and every queue read uses a `0` (non-blocking) timeout. This only works because `configUSE_TIME_SLICING` is enabled — each task still burns its full time slice spinning rather than yielding.
+2. **Guard the LCD text buffers.** `Message.Txt1`/`Txt2` are fixed 4-byte arrays fed by `itoa`; a 3-digit temperature plus the null terminator exactly fills the buffer with zero margin for a sign character or a 4th digit.
+3. **Validate UART input.** `UART_Task` accumulates every received byte as `N - '0'` with no check that the character was actually a digit, and no bound on the number of digits entered before Enter.

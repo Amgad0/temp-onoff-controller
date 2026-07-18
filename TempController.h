@@ -38,27 +38,13 @@
 #define TEMP_SENSOR_PIN     GPIO_PIN_3   /* PE3 / AIN0 */
 #define TEMP_ADC_SEQUENCER  3            /* ADC0 sample sequencer SS3 (1 sample) */
 
-void PORTE_init(void);
-void PORTF_init(void);
-void UART_Init(void);
-void ADC_Init(void);
+/*******************************************************************
+*   Shared inter-task queues (defined in TempController.c)
+*******************************************************************/
+extern QueueHandle_t xUARTQueue;   /* new setpoint, UART_Task -> Main_Task */
+extern QueueHandle_t xLCDQueue;    /* measured + setpoint text, Main_Task -> LCD_Task */
+extern QueueHandle_t xBuzzerQueue; /* alarm on/off flag, Main_Task -> Buzzer_Task */
+
 void PROJECT_Init(void);
-
-char* itoa(int value, char* buffer, int base);	//string to int function
-void swap(char *x, char *y);	//itoa helping function
-char* reverse(char *buffer, int i, int j);	//itoa helping function
-
-
-
-void Buzzer_Task(void *pvParameters);
-void UART_Task(void *pvParameters);
-void Main_Task(void *pvParameters);
-void LCD_Task(void *pvParameters);
-
-void Delay(unsigned long counter);
-char UART0_Receiver(void);
-void UART0_Transmitter(unsigned char data);
-void printstring(char *str);
-
 
 #endif
