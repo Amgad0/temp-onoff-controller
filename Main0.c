@@ -14,3 +14,13 @@ int main()
 	while(1);
 	return 0;
 }
+
+/* Called by the kernel if a task overflows its stack (configCHECK_FOR_STACK_OVERFLOW > 0).
+   Traps here so the offending task/name can be inspected in the debugger. */
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
+{
+	(void)xTask;
+	(void)pcTaskName;
+	taskDISABLE_INTERRUPTS();
+	for(;;);
+}
