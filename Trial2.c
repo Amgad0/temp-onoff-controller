@@ -20,57 +20,43 @@ void PROJECT_Init(void)
 //initialising portE
 void PORTE_init(void)
 {
-
-  SYSCTL_RCGCGPIO_R |= 0x00000016;                     //enables clock to PE
-  //while((SYSCTL_PRGPIO_R&0x00000016) == 0)             //Wait for clock stability
-  //{};
-  GPIO_PORTE_CR_R |= 0x37;                             //Determine that we are using  pins 0,1,2,4, and 5
-  GPIO_PORTE_DEN_R |= 0x37;                            //Digital Enable pins 0,1,2,4, and 5
-  GPIO_PORTE_DIR_R |= 0x37;                            //Set pins 0,1,2,4,5 as outputs       //0111 111
-
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);            // enable clock to Port E
+  while(!SysCtlPeripheralReady(SYSCTL_PERIPH_GPIOE)) {}   // wait for clock stability
+  GPIOPinTypeGPIOOutput(GPIO_PORTE_BASE, PORTE_OUTPUT_PINS);   // PE0-2, PE4-5 as digital outputs
 }
 
 void PORTF_init(void)
 {
-
-	SYSCTL_RCGCGPIO_R |= 0x00000020;                      //enables clock to PF
-//  while((SYSCTL_PRGPIO_R&0x00000016) == 0)              //Wait for clock stability {};
-  GPIO_PORTF_LOCK_R = 0x4C4F434B;                       //Unlock PF0
-  GPIO_PORTF_CR_R  |= 0x0e;                             // Determine that we are using PF0 and PF4
-  GPIO_PORTF_DIR_R |= 0x0e;                              //Set pins 1,2,3 as outputs (LED pins)
-  GPIO_PORTF_DEN_R |= 0x0e;                             //Digital Enable pins 1,2,3
-
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);            // enable clock to Port F
+  while(!SysCtlPeripheralReady(SYSCTL_PERIPH_GPIOF)) {}   // wait for clock stability
+  GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, HEATER_PIN | LED_PIN | BUZZER_PIN); // PF1-3 outputs
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void UART_Init(void)//UART initialization
 {
-  SYSCTL_RCGCUART_R |=  0x1;     // enable clock for UART0
-  SYSCTL_RCGCGPIO_R |=  0x1;     // enable clock for portA
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_UART0);            // enable clock for UART0
+  SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);            // enable clock for Port A
+  while(!SysCtlPeripheralReady(SYSCTL_PERIPH_UART0)) {}
 
-  GPIO_PORTA_AFSEL_R = 0x3;          //Use PA0,PA1 alternate function
-  GPIO_PORTA_PCTL_R = (1<<0)|(1<<4); // PA0 and PA1 configure for UART module
-  GPIO_PORTA_DEN_R = 0x3; // Make PA0 and PA1 as digital
+  GPIOPinConfigure(GPIO_PA0_U0RX);                        // PA0 -> U0RX
+  GPIOPinConfigure(GPIO_PA1_U0TX);                        // PA1 -> U0TX
+  GPIOPinTypeUART(GPIO_PORTA_BASE, GPIO_PIN_0 | GPIO_PIN_1);
 
-  UART0_CTL_R &= ~0x1; //disable uart module during configuration
-  UART0_IBRD_R = 104; //16MHz/16=1MHz, 1MHz/104=9600 baud rate
-  UART0_FBRD_R = 11; //fraction part of baud generator register
-  UART0_LCRH_R = (0x3 << 5); //8-bit , no parity , 1 stop bit
-  UART0_CC_R = 0x05; //use system clock
-  UART0_CTL_R = (1<<0)|(1<<8)|(1<<9); // enable uart module
+  /* Clock UART0 from the 16 MHz PIOSC so the baud rate is independent of the
+     system clock, matching the original register-level configuration. */
+  UARTClockSourceSet(UART0_BASE, UART_CLOCK_PIOSC);
+  UARTConfigSetExpClk(UART0_BASE, 16000000, 9600,
+                      UART_CONFIG_WLEN_8 | UART_CONFIG_STOP_ONE | UART_CONFIG_PAR_NONE);
+  UARTEnable(UART0_BASE);
 }
 char UART0_Receiver(void) //Receives data entered by user
 {
-    char data;
-	  while((UART0->FR & (1<<4)) != 0); /* wait until Rx buffer is not full */
-    data = UART0->DR ;  	/* before giving it another byte */
-    return (unsigned char) data;
-
+    return (char)UARTCharGet(UART0_BASE);   /* blocks until a character is available */
 }
 
 void UART0_Transmitter(unsigned char data) //Transmits data
 {
-    while((UART0->FR & (1<<5)) != 0); /* wait until Tx buffer not full */
-    UART0->DR = data;                  /* before giving it another byte */
+    UARTCharPut(UART0_BASE, data);          /* blocks until there is room in the TX FIFO */
 }
 
 void printstring(char *str) //print data on PC
@@ -122,6 +108,7 @@ void Main_Task(void *pvParameters) //Main Controller Task
 	unsigned char Temperature; //the actual measured temperature
 	float mV;
 	float adc_value;
+	uint32_t adcRaw;   //raw 12-bit ADC sample from SS3
 	unsigned char AlarmValue=70; //the alarm value which controls the buzzer
 	int state;
 	state=0;
@@ -134,35 +121,30 @@ void Main_Task(void *pvParameters) //Main Controller Task
  {
 		xQueueReceive(xUARTQueue, &setpoint,0);  //Receive the setpoint entered by user through uart
 
-				ADC0->PSSI |= (1<<3);        /* Enable SS3 conversion or start sampling data from AN0 */
-        while((ADC0->RIS & 8) == 0) ;   /* Wait untill sample conversion completed*/
-        adc_value = ADC0->SSFIFO3; /* read adc coversion result from SS3 FIFO*/
-        ADC0->ISC = 8;          /* clear coversion clear flag bit*/
+				ADCProcessorTrigger(ADC0_BASE, TEMP_ADC_SEQUENCER);            /* start a conversion on AIN0 */
+        while(!ADCIntStatus(ADC0_BASE, TEMP_ADC_SEQUENCER, false)) ;   /* wait until conversion completes */
+        ADCSequenceDataGet(ADC0_BASE, TEMP_ADC_SEQUENCER, &adcRaw);    /* read result from SS3 FIFO */
+        ADCIntClear(ADC0_BASE, TEMP_ADC_SEQUENCER);                    /* clear the conversion flag */
+        adc_value = (float)adcRaw;
 				mV= ( (adc_value/4096.0)*3300.0 ) ; //mV value
 				Temperature=(int)(mV/10.0); //Temp as integer
 
 
 			if (Temperature > (setpoint+2) ){
 				state=1;
-				GPIO_PORTF_DATA_R &=~ 0x08;		 // turn off heater on PF3
-				GPIO_PORTF_DATA_R &=~ 0x04;    // turn off led on PF2
-
+				GPIOPinWrite(GPIO_PORTF_BASE, HEATER_PIN | LED_PIN, 0);                     // heater + LED OFF
 			}
 			else if(Temperature<(setpoint-1)){
 				state=0;
-				GPIO_PORTF_DATA_R |= 0x08;		//heater on PF3
-				GPIO_PORTF_DATA_R |= 0x04;    // led on PF2
-
+				GPIOPinWrite(GPIO_PORTF_BASE, HEATER_PIN | LED_PIN, HEATER_PIN | LED_PIN);  // heater + LED ON
 			}
 			if(Temperature>=(setpoint-1) && Temperature <= (setpoint+2) && state==0)
 			{
-				GPIO_PORTF_DATA_R |= 0x08;		//heater on PF3
-				GPIO_PORTF_DATA_R |= 0x04;    //led on PF2
+				GPIOPinWrite(GPIO_PORTF_BASE, HEATER_PIN | LED_PIN, HEATER_PIN | LED_PIN);  // hold ON inside hysteresis band
 			}
 			else if (Temperature>=(setpoint-1) && Temperature <= (setpoint+2) && state==1)
 			{
-				GPIO_PORTF_DATA_R &=~ 0x08;		 // turn off heater on PF3
-				GPIO_PORTF_DATA_R &=~ 0x04;    // turn off led on PF2
+				GPIOPinWrite(GPIO_PORTF_BASE, HEATER_PIN | LED_PIN, 0);                     // hold OFF inside hysteresis band
 			}
 
 
@@ -200,10 +182,10 @@ void Buzzer_Task(void *pvParameters)//Buzzer Task //PF1
 
 		if(BuzzerState==1)//Alarm?
 		{
-			GPIO_PORTF_DATA_R |= 0x02; //Buzzer is turned ON
+			GPIOPinWrite(GPIO_PORTF_BASE, BUZZER_PIN, BUZZER_PIN); //Buzzer is turned ON
 		}
 		else{
-			GPIO_PORTF_DATA_R &=~ 0x02; //Buzzer is turned OFF
+			GPIOPinWrite(GPIO_PORTF_BASE, BUZZER_PIN, 0); //Buzzer is turned OFF
 		}
 
 	}
@@ -350,19 +332,18 @@ char* itoa(int value, char* buffer, int base)
 }
 
 void ADC_Init(void){
-    /* Enable Clock to ADC0 and GPIO pins*/
-    SYSCTL->RCGCGPIO |= (1<<4);   /* Enable Clock to GPIOE or PE3/AN0 */
-    SYSCTL->RCGCADC |= (1<<0);    /* AD0 clock enable*/
+    /* Enable clock to ADC0 and Port E */
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_ADC0);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);
+    while(!SysCtlPeripheralReady(SYSCTL_PERIPH_ADC0)) {}
 
-    /* initialize PE3 for AIN0 input  */
-    GPIOE->AFSEL |= (1<<3);       /* enable alternate function */
-    GPIOE->DEN &= ~(1<<3);        /* disable digital function */
-    GPIOE->AMSEL |= (1<<3);       /* enable analog function */
+    /* PE3 / AIN0 as analog input */
+    GPIOPinTypeADC(GPIO_PORTE_BASE, TEMP_SENSOR_PIN);
 
-    /* initialize sample sequencer3 */
-    ADC0->ACTSS &= ~(1<<3);        /* disable SS3 during configuration */
-    ADC0->EMUX &= ~0xF000;    /* software trigger conversion */
-    ADC0->SSMUX3 = 0;         /* get input from channel 0 */
-    ADC0->SSCTL3 |= (1<<1)|(1<<2);        /* take one sample at a time, set flag at 1st sample */
-    ADC0->ACTSS |= (1<<3);         /* enable ADC0 sequencer 3 */
+    /* Sample sequencer SS3: software (processor) trigger, single sample on channel 0 */
+    ADCSequenceDisable(ADC0_BASE, TEMP_ADC_SEQUENCER);
+    ADCSequenceConfigure(ADC0_BASE, TEMP_ADC_SEQUENCER, ADC_TRIGGER_PROCESSOR, 0);
+    ADCSequenceStepConfigure(ADC0_BASE, TEMP_ADC_SEQUENCER, 0,
+                             ADC_CTL_CH0 | ADC_CTL_IE | ADC_CTL_END); /* set flag on the sample, last step */
+    ADCSequenceEnable(ADC0_BASE, TEMP_ADC_SEQUENCER);
 }
