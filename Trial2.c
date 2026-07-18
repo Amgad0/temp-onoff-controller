@@ -118,7 +118,7 @@ void Main_Task(void *pvParameters) //Main Controller Task
 
 
 
-	unsigned char setpoint;   // the setpoint entered by user
+	unsigned char setpoint=25;   // the setpoint entered by user (default until UART sends one)
 	unsigned char Temperature; //the actual measured temperature
 	float mV;
 	float adc_value;
@@ -139,7 +139,7 @@ void Main_Task(void *pvParameters) //Main Controller Task
         adc_value = ADC0->SSFIFO3; /* read adc coversion result from SS3 FIFO*/
         ADC0->ISC = 8;          /* clear coversion clear flag bit*/
 				mV= ( (adc_value/4096.0)*3300.0 ) ; //mV value
-				Temperature=(int) mV/10.0; //Temp as integer
+				Temperature=(int)(mV/10.0); //Temp as integer
 
 
 			if (Temperature > (setpoint+2) ){

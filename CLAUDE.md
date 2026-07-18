@@ -57,15 +57,15 @@ The build also emits harmless `-Wmacro-redefined` warnings (e.g. `WATCHDOG0_BASE
 - **`xQueueHandle` → `QueueHandle_t`** (legacy alias not defined by the 11.3.0 pack).
 - **`configUSE_TIMERS` set to `0`** and **`vApplicationStackOverflowHook` defined in `Main0.c`** — both required to link.
 - **Unused root `FreeRTOSConfig.h` deleted** (only `RTE/RTOS/FreeRTOSConfig.h` is active).
+- **`setpoint` initialized to `25`** in `Main_Task` (was uninitialized; the non-blocking queue read left it as stack garbage before the first UART entry).
+- **Temperature conversion precedence fixed**: `(int)(mV/10.0)` instead of `(int) mV/10.0`.
 
 ## Remaining refactor suggestions (not yet done)
 
 1. **Unify peripheral access to driverlib** and replace magic-number pin masks (`0x37`, `0x0e`, `0x08`, `0x04`, `0x02`) with named constants.
-2. **Initialize `setpoint`** in `Main_Task` (currently uninitialized until the first UART entry).
-3. **Fix temperature conversion precedence**: `(int) mV/10.0` should be `(int)(mV/10.0)`.
-4. **Fix LCD peripheral-clock race** in `LCD_setup()` — no wait for `SysCtlPeripheralReady()` after enabling clocks.
-5. **Rename dead-or-legacy files**: `Trial.c` (dead), `Main0.c`/`Trial2.c`/`Trial2.h` (legacy names), `Lab3.*` (Keil project name).
-6. **Split the monolithic `Trial2.c`** into separate driver files (GPIO, UART, ADC) and a tasks file.
-7. **Avoid busy-waiting inside RTOS tasks** — `Main_Task`/`Buzzer_Task` never call `vTaskDelay` and use non-blocking queue reads; only works because `configUSE_TIME_SLICING` is on.
-8. **Guard the LCD text buffers** — `Message.Txt1`/`Txt2` are 4-byte arrays with zero margin for a sign or 4th digit.
-9. **Validate UART input** — `UART_Task` has no digit check or length bound.
+2. **Fix LCD peripheral-clock race** in `LCD_setup()` — no wait for `SysCtlPeripheralReady()` after enabling clocks.
+3. **Rename dead-or-legacy files**: `Trial.c` (dead), `Main0.c`/`Trial2.c`/`Trial2.h` (legacy names), `Lab3.*` (Keil project name).
+4. **Split the monolithic `Trial2.c`** into separate driver files (GPIO, UART, ADC) and a tasks file.
+5. **Avoid busy-waiting inside RTOS tasks** — `Main_Task`/`Buzzer_Task` never call `vTaskDelay` and use non-blocking queue reads; only works because `configUSE_TIME_SLICING` is on.
+6. **Guard the LCD text buffers** — `Message.Txt1`/`Txt2` are 4-byte arrays with zero margin for a sign or 4th digit.
+7. **Validate UART input** — `UART_Task` has no digit check or length bound.
