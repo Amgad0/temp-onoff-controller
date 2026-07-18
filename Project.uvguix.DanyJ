@@ -3605,7 +3605,7 @@
       <Size>100</Size>
       <ActiveTab>1</ActiveTab>
       <Doc>
-        <Name>.\Main0.c</Name>
+        <Name>.\main.c</Name>
         <ColumnNumber>0</ColumnNumber>
         <TopLine>1</TopLine>
         <CurrentLine>4</CurrentLine>
@@ -3614,7 +3614,7 @@
         <PaneID>0</PaneID>
       </Doc>
       <Doc>
-        <Name>.\Trial2.c</Name>
+        <Name>.\TempController.c</Name>
         <ColumnNumber>62</ColumnNumber>
         <TopLine>336</TopLine>
         <CurrentLine>360</CurrentLine>

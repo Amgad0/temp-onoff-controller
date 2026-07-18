@@ -1,5 +1,5 @@
-#ifndef __TRIAL2__
-#define __TRIAL2__
+#ifndef __TEMPCONTROLLER__
+#define __TEMPCONTROLLER__
 
 #include <stdint.h>
 #include <stdbool.h>
