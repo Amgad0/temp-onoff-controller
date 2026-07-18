@@ -33,14 +33,15 @@ Task responsibilities, all defined in [Trial2.c](Trial2.c) and declared in [Tria
 
 `PROJECT_Init()` in Trial2.c performs all one-time hardware bring-up (Port E, Port F, UART0, ADC0) and creates the three queues before `main()` (in [Main0.c](Main0.c)) creates the tasks and starts the scheduler.
 
-### Mixed hardware-access styles
+### Peripheral-access style (uniform driverlib — keep it that way)
 
-The codebase accesses the same MCU peripherals through different styles depending on which file you're in:
-1. Raw register macros from [tm4c123gh6pm.h](tm4c123gh6pm.h) (e.g. `GPIO_PORTF_DATA_R`, `SYSCTL_RCGCGPIO_R`) — used in most of `Trial2.c`.
-2. CMSIS-style peripheral structs (e.g. `GPIOE->AFSEL`, `SYSCTL->RCGCADC`) — used in `ADC_Init()`.
-3. TI TivaWare `driverlib` calls (e.g. `GPIOPinWrite`, `SysCtlPeripheralEnable`) — used throughout `LCD.c`.
+All peripheral access now goes through TI TivaWare `driverlib` (e.g. `GPIOPinWrite`, `SysCtlPeripheralEnable`, `UARTCharGet`, `ADCSequenceDataGet`) across both `Trial2.c` and `LCD.c`. This was **not** always the case: the code originally mixed three styles (raw register macros from `tm4c123gh6pm.h`, CMSIS-style peripheral structs like `GPIOE->AFSEL`, and driverlib) and was unified to driverlib. When touching peripheral code, stay in driverlib rather than reintroducing raw-register or CMSIS-struct access.
 
-This is a pre-existing inconsistency, tracked as a refactor to unify onto driverlib (see below) — not yet done.
+Notes for driverlib work here:
+- `PART_TM4C123GH6PM` is `#define`d in [Trial2.h](Trial2.h) before including `driverlib/pin_map.h` — required for the pin-mux macros (`GPIO_PA0_U0RX`, etc.) to be visible. Don't remove it.
+- Named pin constants (`HEATER_PIN`/`LED_PIN`/`BUZZER_PIN` on Port F, `PORTE_OUTPUT_PINS`, `TEMP_SENSOR_PIN`, `TEMP_ADC_SEQUENCER`) live in `Trial2.h`; use them instead of bit masks.
+- UART0 is deliberately clocked from the 16 MHz PIOSC (`UARTClockSourceSet(UART0_BASE, UART_CLOCK_PIOSC)` + `UARTConfigSetExpClk(..., 16000000, 9600, ...)`) so the 9600 baud rate doesn't depend on the system clock — matching the original register-level setup. Don't switch it to `SysCtlClockGet()` without setting the system clock first.
+- `tm4c123gh6pm.h` and the CMSIS device header are still in the include set but are no longer used for peripheral access.
 
 ### Files not part of the logical task system
 
@@ -59,13 +60,13 @@ The build also emits harmless `-Wmacro-redefined` warnings (e.g. `WATCHDOG0_BASE
 - **Unused root `FreeRTOSConfig.h` deleted** (only `RTE/RTOS/FreeRTOSConfig.h` is active).
 - **`setpoint` initialized to `25`** in `Main_Task` (was uninitialized; the non-blocking queue read left it as stack garbage before the first UART entry).
 - **Temperature conversion precedence fixed**: `(int)(mV/10.0)` instead of `(int) mV/10.0`.
+- **Peripheral access unified to driverlib** with named pin constants — see the peripheral-access section above.
 
 ## Remaining refactor suggestions (not yet done)
 
-1. **Unify peripheral access to driverlib** and replace magic-number pin masks (`0x37`, `0x0e`, `0x08`, `0x04`, `0x02`) with named constants.
-2. **Fix LCD peripheral-clock race** in `LCD_setup()` — no wait for `SysCtlPeripheralReady()` after enabling clocks.
-3. **Rename dead-or-legacy files**: `Trial.c` (dead), `Main0.c`/`Trial2.c`/`Trial2.h` (legacy names), `Lab3.*` (Keil project name).
-4. **Split the monolithic `Trial2.c`** into separate driver files (GPIO, UART, ADC) and a tasks file.
-5. **Avoid busy-waiting inside RTOS tasks** — `Main_Task`/`Buzzer_Task` never call `vTaskDelay` and use non-blocking queue reads; only works because `configUSE_TIME_SLICING` is on.
-6. **Guard the LCD text buffers** — `Message.Txt1`/`Txt2` are 4-byte arrays with zero margin for a sign or 4th digit.
-7. **Validate UART input** — `UART_Task` has no digit check or length bound.
+1. **Fix LCD peripheral-clock race** in `LCD_setup()` — no wait for `SysCtlPeripheralReady()` after enabling clocks.
+2. **Rename dead-or-legacy files**: `Trial.c` (dead), `Main0.c`/`Trial2.c`/`Trial2.h` (legacy names), `Lab3.*` (Keil project name).
+3. **Split the monolithic `Trial2.c`** into separate driver files (GPIO, UART, ADC) and a tasks file.
+4. **Avoid busy-waiting inside RTOS tasks** — `Main_Task`/`Buzzer_Task` never call `vTaskDelay` and use non-blocking queue reads; only works because `configUSE_TIME_SLICING` is on.
+5. **Guard the LCD text buffers** — `Message.Txt1`/`Txt2` are 4-byte arrays with zero margin for a sign or 4th digit.
+6. **Validate UART input** — `UART_Task` has no digit check or length bound.
