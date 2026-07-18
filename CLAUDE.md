@@ -61,12 +61,12 @@ The build also emits harmless `-Wmacro-redefined` warnings (e.g. `WATCHDOG0_BASE
 - **`setpoint` initialized to `25`** in `Main_Task` (was uninitialized; the non-blocking queue read left it as stack garbage before the first UART entry).
 - **Temperature conversion precedence fixed**: `(int)(mV/10.0)` instead of `(int) mV/10.0`.
 - **Peripheral access unified to driverlib** with named pin constants — see the peripheral-access section above.
+- **LCD peripheral-clock race fixed** — `LCD_setup()` now waits on `SysCtlPeripheralReady()` after each `SysCtlPeripheralEnable()` before touching the port, for both the control and data peripherals.
 
 ## Remaining refactor suggestions (not yet done)
 
-1. **Fix LCD peripheral-clock race** in `LCD_setup()` — no wait for `SysCtlPeripheralReady()` after enabling clocks.
-2. **Rename dead-or-legacy files**: `Trial.c` (dead), `Main0.c`/`Trial2.c`/`Trial2.h` (legacy names), `Lab3.*` (Keil project name).
-3. **Split the monolithic `Trial2.c`** into separate driver files (GPIO, UART, ADC) and a tasks file.
-4. **Avoid busy-waiting inside RTOS tasks** — `Main_Task`/`Buzzer_Task` never call `vTaskDelay` and use non-blocking queue reads; only works because `configUSE_TIME_SLICING` is on.
-5. **Guard the LCD text buffers** — `Message.Txt1`/`Txt2` are 4-byte arrays with zero margin for a sign or 4th digit.
-6. **Validate UART input** — `UART_Task` has no digit check or length bound.
+1. **Rename dead-or-legacy files**: `Trial.c` (dead), `Main0.c`/`Trial2.c`/`Trial2.h` (legacy names), `Lab3.*` (Keil project name).
+2. **Split the monolithic `Trial2.c`** into separate driver files (GPIO, UART, ADC) and a tasks file.
+3. **Avoid busy-waiting inside RTOS tasks** — `Main_Task`/`Buzzer_Task` never call `vTaskDelay` and use non-blocking queue reads; only works because `configUSE_TIME_SLICING` is on.
+4. **Guard the LCD text buffers** — `Message.Txt1`/`Txt2` are 4-byte arrays with zero margin for a sign or 4th digit.
+5. **Validate UART input** — `UART_Task` has no digit check or length bound.
