@@ -170,7 +170,7 @@
         <Mm>
           <WinNumber>1</WinNumber>
           <SubType>0</SubType>
-          <ItemText>\\Lab3\main.c\xQueue</ItemText>
+          <ItemText>\\Project\main.c\xQueue</ItemText>
           <AccSizeX>0</AccSizeX>
         </Mm>
       </MemoryWindow1>
@@ -273,8 +273,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\Trial2.c</PathWithFileName>
-      <FilenameWithoutPath>Trial2.c</FilenameWithoutPath>
+      <PathWithFileName>.\TempController.c</PathWithFileName>
+      <FilenameWithoutPath>TempController.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>
@@ -285,8 +285,8 @@
       <tvExp>0</tvExp>
       <tvExpOptDlg>0</tvExpOptDlg>
       <bDave2>0</bDave2>
-      <PathWithFileName>.\Main0.c</PathWithFileName>
-      <FilenameWithoutPath>Main0.c</FilenameWithoutPath>
+      <PathWithFileName>.\main.c</PathWithFileName>
+      <FilenameWithoutPath>main.c</FilenameWithoutPath>
       <RteFlg>0</RteFlg>
       <bShared>0</bShared>
     </File>

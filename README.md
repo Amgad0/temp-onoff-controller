@@ -127,13 +127,12 @@ flowchart LR
 
 | File | Role |
 |---|---|
-| [`Trial2.c`](Trial2.c) / [`Trial2.h`](Trial2.h) | Application core: hardware bring-up (`PROJECT_Init`, `PORTE_init`, `PORTF_init`, `UART_Init`, `ADC_Init`), all four RTOS tasks, and a small hand-written `itoa`/`reverse`/`swap` for formatting temperatures onto the LCD without pulling in a full C library `itoa`. |
-| [`Main0.c`](Main0.c) | Entry point — `main()` creates the four tasks and starts the FreeRTOS scheduler. |
+| [`TempController.c`](TempController.c) / [`TempController.h`](TempController.h) | Application core: hardware bring-up (`PROJECT_Init`, `PORTE_init`, `PORTF_init`, `UART_Init`, `ADC_Init`), all four RTOS tasks, and a small hand-written `itoa`/`reverse`/`swap` for formatting temperatures onto the LCD without pulling in a full C library `itoa`. |
+| [`main.c`](main.c) | Entry point — `main()` creates the four tasks and starts the FreeRTOS scheduler. |
 | [`LCD.c`](LCD.c) / [`LCD.h`](LCD.h) | Custom HD44780-compatible LCD driver written against TI's TivaWare `driverlib`. Supports 4-bit nibble-mode communication (halving the GPIO pin count needed vs. 8-bit mode), cursor/position tracking across both lines, and byte/string/number output primitives (`LCD_sendByte`, `LCD_sendString`, `LCD_sendNum`). |
 | [`tm4c123gh6pm.h`](tm4c123gh6pm.h) | Vendor register-definition header for the TM4C123GH6PM (memory-mapped peripheral registers). Retained in the include set, though peripheral access now goes through `driverlib` rather than these raw macros. |
 | [`RTE/RTOS/FreeRTOSConfig.h`](RTE/RTOS/FreeRTOSConfig.h) | FreeRTOS kernel configuration — 1 kHz tick, preemption + time-slicing enabled, 8 KB heap, `heap_1` allocator. |
-| [`Lab3.uvprojx`](Lab3.uvprojx) | Keil uVision5 project definition (device, memory map, TivaWare include paths, source file list). |
-| `Trial.c` | Early standalone LCD test program with its own `main()`, excluded from the Keil build (not listed in `Lab3.uvprojx`). |
+| [`Project.uvprojx`](Project.uvprojx) | Keil uVision5 project definition (device, memory map, TivaWare include paths, source file list). |
 
 ## Building
 
@@ -142,35 +141,35 @@ Requires:
 - [TivaWare_C_Series 2.2.0.295](https://www.ti.com/tool/SW-TM4C) installed at `C:\ti\TivaWare_C_Series-2.2.0.295` (hardcoded in the project's include paths)
 
 Steps:
-1. Open `Lab3.uvprojx` in uVision5.
+1. Open `Project.uvprojx` in uVision5.
 2. Build (F7).
 3. Flash to the LaunchPad over its onboard debugger (F8).
 4. Open a serial terminal (e.g. PuTTY) at 9600-8-N-1 on the LaunchPad's virtual COM port to interact with `UART_Task`.
 
 Command-line (batch) build is also available via Keil's `UV4.exe`, e.g.:
 ```
-UV4.exe -r "Lab3.uvprojx" -j0 -o "build.log"
+UV4.exe -r "Project.uvprojx" -j0 -o "build.log"
 ```
 (`-r` rebuilds all files; `-j0` runs non-interactively.)
 
 ## Fixes applied
 
-- **Modernized the deprecated FreeRTOS queue type.** The code used the legacy `xQueueHandle` alias, which the currently installed CMSIS-FreeRTOS 11.3.0 pack no longer defines (compile error: `unknown type name 'xQueueHandle'`). Changed to the current `QueueHandle_t` in `Trial2.c`.
+- **Modernized the deprecated FreeRTOS queue type.** The code used the legacy `xQueueHandle` alias, which the currently installed CMSIS-FreeRTOS 11.3.0 pack no longer defines (compile error: `unknown type name 'xQueueHandle'`). Changed to the current `QueueHandle_t` in `TempController.c`.
 - **Disabled unused software-timer support.** `RTE/RTOS/FreeRTOSConfig.h` had `configUSE_TIMERS` set to `1`, but the app doesn't use FreeRTOS software timers and `timers.c` isn't part of the build — this produced linker errors (`xTimerCreateTimerTask`, `xTimerGetTimerDaemonTaskHandle` undefined). Set `configUSE_TIMERS` to `0` to match what's actually used.
-- **Added the required stack-overflow hook.** `configCHECK_FOR_STACK_OVERFLOW` is set to `2`, which requires the application to supply `vApplicationStackOverflowHook` — it was missing, causing a link error. Implemented it in `Main0.c` (traps with interrupts disabled so the offending task can be inspected in the debugger, rather than silently disabling the check).
-- **Removed an unused duplicate config file.** A root-level `FreeRTOSConfig.h` existed alongside the actual active config at `RTE/RTOS/FreeRTOSConfig.h`; the root copy wasn't referenced anywhere in `Lab3.uvprojx` and was deleted.
+- **Added the required stack-overflow hook.** `configCHECK_FOR_STACK_OVERFLOW` is set to `2`, which requires the application to supply `vApplicationStackOverflowHook` — it was missing, causing a link error. Implemented it in `main.c` (traps with interrupts disabled so the offending task can be inspected in the debugger, rather than silently disabling the check).
+- **Removed an unused duplicate config file.** A root-level `FreeRTOSConfig.h` existed alongside the actual active config at `RTE/RTOS/FreeRTOSConfig.h`; the root copy wasn't referenced anywhere in `Project.uvprojx` and was deleted.
 - **Initialized the `setpoint` variable.** In `Main_Task`, `unsigned char setpoint` was previously uninitialized and only ever written by a non-blocking queue read — before the user's first UART entry, the heater/LED logic ran against whatever garbage happened to be on the stack. Now defaults to `25`.
 - **Fixed an operator-precedence bug in the temperature conversion.** `Temperature=(int) mV/10.0;` cast `mV` to `int` *before* dividing (the cast binds tighter than `/`), truncating a step earlier than intended. Changed to `Temperature=(int)(mV/10.0);`.
-- **Unified peripheral access onto TivaWare `driverlib`.** GPIO/UART/ADC init and every register write in `Trial2.c` used a mix of raw register macros and CMSIS-style structs; all of it (`PORTE_init`, `PORTF_init`, `UART_Init`, `UART0_Receiver`/`Transmitter`, `ADC_Init`, and every heater/LED/buzzer GPIO write) now goes through `driverlib`, matching the style `LCD.c` already used. UART0 is deliberately clocked from the 16 MHz PIOSC (`UARTClockSourceSet(... UART_CLOCK_PIOSC)`) so the 9600 baud rate stays independent of the system clock, matching the original register-level setup.
-- **Replaced magic-number pin masks with named constants.** `HEATER_PIN`, `LED_PIN`, `BUZZER_PIN` (Port F), `PORTE_OUTPUT_PINS`, `TEMP_SENSOR_PIN`, and `TEMP_ADC_SEQUENCER` in `Trial2.h` replace the `0x37`/`0x0e`/`0x08`/`0x04`/`0x02` bit masks.
-- **Fixed an LCD peripheral-clock race.** `LCD_setup()` enabled the Port A/C clocks and configured their pins on the very next line, with no wait for the clock to stabilize — a known TM4C123 gotcha. Added a `SysCtlPeripheralReady()` wait after each `SysCtlPeripheralEnable()` call, matching the pattern already used elsewhere in `Trial2.c`.
+- **Unified peripheral access onto TivaWare `driverlib`.** GPIO/UART/ADC init and every register write in `TempController.c` used a mix of raw register macros and CMSIS-style structs; all of it (`PORTE_init`, `PORTF_init`, `UART_Init`, `UART0_Receiver`/`Transmitter`, `ADC_Init`, and every heater/LED/buzzer GPIO write) now goes through `driverlib`, matching the style `LCD.c` already used. UART0 is deliberately clocked from the 16 MHz PIOSC (`UARTClockSourceSet(... UART_CLOCK_PIOSC)`) so the 9600 baud rate stays independent of the system clock, matching the original register-level setup.
+- **Replaced magic-number pin masks with named constants.** `HEATER_PIN`, `LED_PIN`, `BUZZER_PIN` (Port F), `PORTE_OUTPUT_PINS`, `TEMP_SENSOR_PIN`, and `TEMP_ADC_SEQUENCER` in `TempController.h` replace the `0x37`/`0x0e`/`0x08`/`0x04`/`0x02` bit masks.
+- **Fixed an LCD peripheral-clock race.** `LCD_setup()` enabled the Port A/C clocks and configured their pins on the very next line, with no wait for the clock to stabilize — a known TM4C123 gotcha. Added a `SysCtlPeripheralReady()` wait after each `SysCtlPeripheralEnable()` call, matching the pattern already used elsewhere in `TempController.c`.
+- **Renamed dead/legacy files and removed the unused standalone test.** `Trial2.c`/`Trial2.h` → `TempController.c`/`TempController.h` and `Main0.c` → `main.c` (both were legacy names from earlier demo iterations); the dead `Trial.c` standalone LCD test (never part of the build) was deleted; the Keil project itself was renamed `Lab3.*` → `Project.*`.
 
 ## Known issues / not yet fixed
 
 These are tracked but not yet addressed:
 
-1. **Dead/duplicate entry points and stale names.** `Trial.c` is an unused standalone LCD test; `Main0.c` (the real entry point) and `Trial2.c`/`Trial2.h` (the application core) carry legacy names from earlier demo iterations, and the Keil project itself is still named `Lab3`.
-2. **Monolithic application file.** `Trial2.c` holds ADC/UART/GPIO init *and* all four RTOS tasks in one file.
-3. **Avoid busy-waiting inside RTOS tasks.** `Main_Task` and `Buzzer_Task` never call `vTaskDelay`, and every queue read uses a `0` (non-blocking) timeout. This only works because `configUSE_TIME_SLICING` is enabled — each task still burns its full time slice spinning rather than yielding.
-4. **Guard the LCD text buffers.** `Message.Txt1`/`Txt2` are fixed 4-byte arrays fed by `itoa`; a 3-digit temperature plus the null terminator exactly fills the buffer with zero margin for a sign character or a 4th digit.
-5. **Validate UART input.** `UART_Task` accumulates every received byte as `N - '0'` with no check that the character was actually a digit, and no bound on the number of digits entered before Enter.
+1. **Monolithic application file.** `TempController.c` holds ADC/UART/GPIO init *and* all four RTOS tasks in one file.
+2. **Avoid busy-waiting inside RTOS tasks.** `Main_Task` and `Buzzer_Task` never call `vTaskDelay`, and every queue read uses a `0` (non-blocking) timeout. This only works because `configUSE_TIME_SLICING` is enabled — each task still burns its full time slice spinning rather than yielding.
+3. **Guard the LCD text buffers.** `Message.Txt1`/`Txt2` are fixed 4-byte arrays fed by `itoa`; a 3-digit temperature plus the null terminator exactly fills the buffer with zero margin for a sign character or a 4th digit.
+4. **Validate UART input.** `UART_Task` accumulates every received byte as `N - '0'` with no check that the character was actually a digit, and no bound on the number of digits entered before Enter.
