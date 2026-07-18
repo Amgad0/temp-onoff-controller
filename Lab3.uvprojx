@@ -407,7 +407,7 @@
             <File>
               <FileName>Main0.c</FileName>
               <FileType>1</FileType>
-              <FilePath>.\main.c</FilePath>
+              <FilePath>.\Main0.c</FilePath>
             </File>
           </Files>
         </Group>
